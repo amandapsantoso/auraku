@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
-import { Camera, Upload, Search, Filter, Loader2, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Camera, Upload, Search, Filter, Loader2, Image as ImageIcon, Trash2, Receipt, Mail } from 'lucide-react';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { storage, db } from '../../lib/firebase';
 import { LiveCamera } from './LiveCamera';
 import { analyzeClothingImage } from '../../lib/gemini';
 import { ItemDetailPopup } from './ItemDetailPopup';
+import { ReceiptImport } from './ReceiptImport';
 
 export function DigitalCloset({ onStyleItems }: { onStyleItems?: (items: any[]) => void }) {
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -17,6 +18,8 @@ export function DigitalCloset({ onStyleItems }: { onStyleItems?: (items: any[]) 
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
+  const [showReceiptImport, setShowReceiptImport] = useState(false);
+  const [showGmailNotice, setShowGmailNotice] = useState(false);
 
   const [clothingItems, setClothingItems] = useState<any[]>([]);
 
@@ -195,6 +198,35 @@ export function DigitalCloset({ onStyleItems }: { onStyleItems?: (items: any[]) 
           </button>
         </div>
 
+        {/* Purchase history import */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowReceiptImport(true)}
+            className="flex-1 bg-white text-gray-700 rounded-xl p-3 flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors border border-gray-200"
+          >
+            <Receipt className="size-4" />
+            <span className="font-medium text-sm">Import receipt</span>
+          </button>
+          {/* Demo-only placeholder: real Gmail sync is not implemented yet */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowGmailNotice(true);
+              setTimeout(() => setShowGmailNotice(false), 3000);
+            }}
+            className="flex-1 bg-white text-gray-700 rounded-xl p-3 flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors border border-gray-200"
+          >
+            <Mail className="size-4" />
+            <span className="font-medium text-sm">Sync Gmail</span>
+          </button>
+        </div>
+        {showGmailNotice && (
+          <div className="p-3 rounded-xl border bg-purple-50 border-purple-200 text-purple-700 text-xs font-medium">
+            Gmail sync is coming soon. For now, use Import receipt to add a purchase.
+          </div>
+        )}
+
         <input
           type="file"
           accept="image/*"
@@ -332,6 +364,11 @@ export function DigitalCloset({ onStyleItems }: { onStyleItems?: (items: any[]) 
               </div>
               <div className="p-2.5">
                 <h4 className="font-medium text-gray-900 text-xs mb-1 truncate" title={item.name}>{item.name}</h4>
+                {item.source === 'receipt' && (
+                  <span className="inline-block mb-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase">
+                    From receipt{item.purchaseDate ? ` • ${item.purchaseDate}` : ''}
+                  </span>
+                )}
                 <div className="flex items-center justify-between text-[10px] text-gray-500">
                   <span className="capitalize text-ellipsis overflow-hidden whitespace-nowrap max-w-[70%]">
                     {item.color} • {item.brand || 'Unknown'} {item.material && `• ${item.material}`}
@@ -350,8 +387,15 @@ export function DigitalCloset({ onStyleItems }: { onStyleItems?: (items: any[]) 
         </div>
       </div>
 
+      {showReceiptImport && (
+        <ReceiptImport
+          existingItems={clothingItems}
+          onClose={() => setShowReceiptImport(false)}
+        />
+      )}
+
       {selectedItem && (
-        <ItemDetailPopup 
+        <ItemDetailPopup
           item={selectedItem} 
           onClose={() => setSelectedItem(null)} 
         />

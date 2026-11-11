@@ -84,6 +84,65 @@ export async function analyzeClothingImage(file: File): Promise<ClothingMetadata
   }
 }
 
+export interface ReceiptItem extends ClothingMetadata {
+  purchaseDate: string; // ISO date (YYYY-MM-DD) or '' if unknown
+  price: string; // e.g. "$128.00" or '' if unknown
+  retailer: string;
+}
+
+/**
+ * Extracts purchased clothing items from a receipt / order-confirmation email.
+ * Accepts pasted email text, a screenshot of the email, or both.
+ */
+export async function parseReceipt(input: { text?: string; file?: File }): Promise<ReceiptItem[]> {
+  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing VITE_GEMINI_API_KEY in .env file");
+  }
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  const prompt = `
+    You are an assistant that reads retail receipts, order confirmations and
+    review-request emails and extracts the CLOTHING / ACCESSORY items purchased.
+    Ignore shipping, tax, gift cards and non-wearable products.
+    Return ONLY a valid JSON array (no other text). Each element:
+    {
+      "name": "Product name as in the email (e.g., 'Women's Cross Chill Performance Jacket')",
+      "brand": "Retailer or brand (e.g., 'lululemon'), or 'Unknown Brand'",
+      "retailer": "The store that sent the email, or ''",
+      "category": "one of: top, bottom, outerwear, dress, skirt, blouse, shirt, tshirt, shoes, jewelry, scarf, accessory",
+      "type": "fit or style if stated (e.g., 'performance', 'oversized'), else 'unknown'",
+      "color": "primary color if stated or visible, else 'unknown'",
+      "material": "material if stated, else 'unknown'",
+      "emoji": "a single emoji representing the item",
+      "purchaseDate": "YYYY-MM-DD if a date is present, else ''",
+      "price": "price with currency symbol if present, else ''"
+    }
+    If no clothing items are found, return [].
+  `;
+
+  const parts: any[] = [prompt];
+  if (input.text?.trim()) parts.push(`EMAIL TEXT:\n${input.text.trim()}`);
+  if (input.file) parts.push(await fileToGenerativePart(input.file));
+  if (parts.length === 1) throw new Error("Provide receipt text or an image.");
+
+  const run = async (modelName: string) => {
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContent(parts);
+    const responseText = result.response.text();
+    const match = responseText.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(match ? match[0] : responseText);
+    return (Array.isArray(parsed) ? parsed : []) as ReceiptItem[];
+  };
+
+  try {
+    return await run("gemini-3-flash-preview");
+  } catch (error) {
+    console.warn("Receipt parsing failed on primary model, trying fallback:", error);
+    return await run("gemini-1.5-flash");
+  }
+}
+
 export interface OutfitRecommendation {
   name: string;
   itemIds: string[];
